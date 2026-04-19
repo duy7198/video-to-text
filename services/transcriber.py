@@ -239,6 +239,158 @@ def _is_tiktok_url(url: str) -> bool:
     return any(host in url for host in ("tiktok.com", "vt.tiktok", "vm.tiktok"))
 
 
+def _is_youtube_url(url: str) -> bool:
+    """True if the URL is on any YouTube host."""
+    return any(host in url for host in ("youtube.com", "youtu.be", "youtube-nocookie.com"))
+
+
+def _extract_youtube_id(url: str) -> Optional[str]:
+    """Pull the 11-char video ID out of any YouTube URL shape."""
+    import re
+    m = re.search(
+        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/'
+        r'|youtube\.com/embed/|youtube\.com/v/|youtube-nocookie\.com/embed/)'
+        r'([A-Za-z0-9_-]{11})',
+        url,
+    )
+    return m.group(1) if m else None
+
+
+# Public Piped / Invidious frontends (April 2026). They proxy YouTube through
+# their own infrastructure, so they sometimes work when direct-from-HF fails.
+# Note: instances go up and down frequently — we try several.
+_PIPED_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.r4fo.com",
+    "https://api.piped.yt",
+]
+
+_INVIDIOUS_INSTANCES = [
+    "https://inv.nadeko.net",
+    "https://invidious.nerdvpn.de",
+    "https://yewtu.be",
+]
+
+
+def _download_audio_from_url(
+    audio_url: str, out_dir: Path, progress_cb: Callable[[str], None]
+) -> Path:
+    """Stream an audio URL to out_dir/video.m4a."""
+    import requests
+    out_path = out_dir / "video.m4a"
+    r = requests.get(
+        audio_url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/124.0.0.0 Safari/537.36",
+        },
+        stream=True,
+        timeout=120,
+    )
+    r.raise_for_status()
+    with open(out_path, "wb") as f:
+        for chunk in r.iter_content(chunk_size=65536):
+            if chunk:
+                f.write(chunk)
+    if out_path.stat().st_size < 10_000:
+        raise RuntimeError("Downloaded audio file too small or incomplete")
+    return out_path
+
+
+def _download_via_piped(
+    video_id: str, out_dir: Path, progress_cb: Callable[[str], None]
+) -> Path:
+    """Try each Piped instance until one returns a working audio URL."""
+    import requests
+    last_err: Optional[str] = None
+    for instance in _PIPED_INSTANCES:
+        host = instance.split("://", 1)[-1]
+        progress_cb(f"Trying Piped: {host}...")
+        try:
+            r = requests.get(
+                f"{instance}/streams/{video_id}",
+                timeout=15,
+                headers={"User-Agent": "video-to-text/1.0"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            audio_streams = [
+                s for s in (data.get("audioStreams") or []) if s.get("url")
+            ]
+            if not audio_streams:
+                last_err = "no audio streams"
+                continue
+            # Prefer m4a ~128kbps for good quality/size balance
+            audio_streams.sort(key=lambda s: abs((s.get("bitrate") or 0) - 128000))
+            return _download_audio_from_url(
+                audio_streams[0]["url"], out_dir, progress_cb
+            )
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)
+            continue
+    raise RuntimeError(f"All Piped instances failed (last: {last_err})")
+
+
+def _download_via_invidious(
+    video_id: str, out_dir: Path, progress_cb: Callable[[str], None]
+) -> Path:
+    """Try each Invidious instance until one returns a working audio URL."""
+    import requests
+    last_err: Optional[str] = None
+    for instance in _INVIDIOUS_INSTANCES:
+        host = instance.split("://", 1)[-1]
+        progress_cb(f"Trying Invidious: {host}...")
+        try:
+            r = requests.get(
+                f"{instance}/api/v1/videos/{video_id}",
+                timeout=15,
+                headers={"User-Agent": "video-to-text/1.0"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            audio_formats = [
+                f for f in (data.get("adaptiveFormats") or [])
+                if f.get("url") and "audio" in (f.get("type") or "")
+            ]
+            if not audio_formats:
+                # Some instances don't expose adaptiveFormats; try formatStreams.
+                audio_formats = [
+                    f for f in (data.get("formatStreams") or []) if f.get("url")
+                ]
+            if not audio_formats:
+                last_err = "no audio formats"
+                continue
+            audio_formats.sort(
+                key=lambda f: int(str(f.get("bitrate") or "0").split()[0] or "0")
+            )
+            return _download_audio_from_url(
+                audio_formats[0]["url"], out_dir, progress_cb
+            )
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)
+            continue
+    raise RuntimeError(f"All Invidious instances failed (last: {last_err})")
+
+
+def _download_youtube_fallback(
+    url: str, out_dir: Path, progress_cb: Callable[[str], None]
+) -> Path:
+    """When yt-dlp hits YouTube's bot wall, try third-party frontend APIs."""
+    video_id = _extract_youtube_id(url)
+    if not video_id:
+        raise RuntimeError("Could not parse YouTube video ID from URL")
+
+    # Piped proxies audio through the instance, generally more reliable.
+    try:
+        return _download_via_piped(video_id, out_dir, progress_cb)
+    except RuntimeError as e:
+        progress_cb(f"Piped failed ({e}); trying Invidious...")
+
+    return _download_via_invidious(video_id, out_dir, progress_cb)
+
+
 def _download_tiktok_video_via_tikwm(
     url: str, out_dir: Path, progress_cb: Callable[[str], None]
 ) -> Path:
@@ -410,11 +562,18 @@ def transcribe_url(
                 "url": url,
             }
         except RuntimeError as exc:
-            # TikTok video fallback: if yt-dlp failed on a TikTok URL (bot block,
-            # IP filter, etc.), try tikwm.com which proxies through trusted IPs.
+            err_str = str(exc).lower()
+            # TikTok video fallback: yt-dlp fails on datacenter IP → try tikwm
             if _is_tiktok_url(url):
                 progress_cb(f"yt-dlp failed ({exc}); trying tikwm.com fallback...")
                 video_path = _download_tiktok_video_via_tikwm(url, tmp_path, progress_cb)
+            # YouTube bot-check fallback: try Piped / Invidious frontends
+            elif _is_youtube_url(url) and (
+                "bot" in err_str or "sign in" in err_str
+                or "blocked this request" in err_str
+            ):
+                progress_cb("YouTube direct blocked; trying Piped/Invidious...")
+                video_path = _download_youtube_fallback(url, tmp_path, progress_cb)
             else:
                 raise
 
