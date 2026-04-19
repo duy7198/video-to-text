@@ -76,23 +76,31 @@ def detect_language(text: str) -> str:
 
 
 def _download_with_ytdlp(url: str, out_dir: Path, progress_cb: Callable[[str], None]) -> Path:
-    """Download a video with yt-dlp. Returns path to the .mp4 file."""
+    """Download a video with yt-dlp. Returns path to the .mp4 (or .m4a) file.
+
+    On YouTube, datacenter IPs get hit with "Sign in to confirm you're not a bot".
+    Workaround: tell yt-dlp to try the embedded player clients which don't
+    require PO tokens or cookies. We try several clients in a single call —
+    yt-dlp falls through the list until one works.
+    """
     progress_cb("Downloading media with yt-dlp...")
     out_template = str(out_dir / "video.%(ext)s")
-    result = subprocess.run(
-        [
-            "yt-dlp",
-            "--no-warnings",
-            "--no-check-certificates",
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "--merge-output-format", "mp4",
-            "-o", out_template,
-            url,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=YTDLP_TIMEOUT,
-    )
+
+    cmd = [
+        "yt-dlp",
+        "--no-warnings",
+        "--no-check-certificates",
+        # YouTube bot-detection bypass chain — most-reliable-first.
+        # Ignored by non-YouTube extractors, so safe to pass globally.
+        "--extractor-args",
+        "youtube:player_client=web_embedded,tv_embedded,mweb,android_vr,tv",
+        # Audio-only is cheaper to download AND all we need for transcription.
+        # Falls back to video+audio if audio-only isn't available.
+        "-f", "bestaudio[ext=m4a]/bestaudio/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+        "-o", out_template,
+        url,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT)
 
     if result.returncode != 0:
         stderr = result.stderr or ""
