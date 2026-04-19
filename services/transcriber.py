@@ -286,10 +286,17 @@ def _ocr_slides(
 ) -> list[str]:
     progress_cb(f"Running OCR ({', '.join(langs)}) on {len(image_paths)} slide(s)...")
     reader = _load_ocr_reader(langs)
+    # Import here to avoid a hard dep at module-import time
+    from .ocr_service import _load_image_as_rgb_array
+
     texts: list[str] = []
     for i, p in enumerate(image_paths, 1):
         progress_cb(f"OCR slide {i}/{len(image_paths)}")
-        results = reader.readtext(str(p), detail=0, paragraph=True)
+        try:
+            img_array = _load_image_as_rgb_array(str(p))
+        except Exception:
+            continue  # skip slides we couldn't decode
+        results = reader.readtext(img_array, detail=0, paragraph=True)
         texts.append(" ".join(results).strip())
     return texts
 
