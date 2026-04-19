@@ -46,7 +46,13 @@
             spellcheck="false"
           />
         </label>
-        <div class="hint">YouTube, TikTok videos, TikTok photo slideshows, and most sites yt-dlp supports.</div>
+        <div class="hint">
+          TikTok (videos + photo slideshows), Facebook, Instagram, and most
+          yt-dlp sites work on the hosted demo. <strong>YouTube often fails
+          on cloud hosts</strong> because Google blocks datacenter IPs — for
+          YouTube, run this app locally, or set a <code>YTDLP_PROXY</code>
+          secret pointing to a residential proxy.
+        </div>
         <button id="submit-url" class="btn primary">
           <span>Convert</span>
           <span class="btn-arrow">↵</span>

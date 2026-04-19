@@ -86,6 +86,28 @@ Environment variables:
 | `HOST`          | `0.0.0.0`| Bind address                                              |
 | `UPLOAD_DIR`    | `uploads`| Where uploaded images are stored                          |
 | `YTDLP_TIMEOUT` | `600`    | yt-dlp timeout in seconds                                 |
+| `YTDLP_PROXY`   | *unset*  | Proxy URL for yt-dlp (needed for YouTube on cloud hosts)  |
+
+## ⚠️ YouTube on cloud hosting
+
+YouTube aggressively blocks **datacenter IPs** (AWS, HF Spaces, Render, Fly.io)
+with a "Sign in to confirm you're not a bot" message. This is not
+fixable with headers or yt-dlp flags alone — it's IP-reputation-based.
+
+**Options to make YouTube work:**
+
+1. **Run locally** — on your residential connection, YouTube works out of the box.
+2. **Set `YTDLP_PROXY`** — point to a residential/trusted proxy. Free options:
+   - Self-host [Cloudflare WARP](https://github.com/cmj2002/warp-docker) on a
+     small VPS — Cloudflare IPs are usually treated as residential by YouTube.
+     Set `YTDLP_PROXY=http://your-warp-vps:1080`.
+   - [Mullvad VPN](https://mullvad.net/) has a SOCKS5 proxy for paying users (~€5/mo).
+   - [Bright Data](https://brightdata.com), [Smartproxy](https://smartproxy.com),
+     [Oxylabs](https://oxylabs.io) — commercial residential proxy services.
+3. **Use a non-YouTube URL** — TikTok, Facebook, Instagram, Twitter/X, etc. still
+   work fine on cloud IPs because their bot detection is lighter.
+
+On Hugging Face Spaces, set `YTDLP_PROXY` under *Settings → Variables and secrets*.
 
 Example:
 
