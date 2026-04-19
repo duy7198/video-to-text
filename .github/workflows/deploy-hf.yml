@@ -1,0 +1,75 @@
+name: Deploy to Hugging Face Space
+
+# Triggers:
+#   - Manual via the "Run workflow" button in the Actions tab
+#   - Automatically on every push to main
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history to push a complete repo
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install huggingface_hub
+        run: pip install --quiet "huggingface_hub>=0.24"
+
+      - name: Create Hugging Face Space if it doesn't exist
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_SPACE_NAME: video-to-text
+        run: |
+          python - <<'EOF'
+          import os, sys
+          from huggingface_hub import HfApi, HfHubHTTPError
+          token = os.environ["HF_TOKEN"]
+          username = os.environ["HF_USERNAME"]
+          space = os.environ["HF_SPACE_NAME"]
+          api = HfApi(token=token)
+          repo_id = f"{username}/{space}"
+          try:
+              api.create_repo(
+                  repo_id=repo_id,
+                  repo_type="space",
+                  space_sdk="docker",
+                  exist_ok=True,
+                  private=False,
+              )
+              print(f"✓ Space ready: https://huggingface.co/spaces/{repo_id}")
+          except Exception as e:
+              print(f"Error creating space: {e}", file=sys.stderr)
+              sys.exit(1)
+          EOF
+
+      - name: Push code to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_SPACE_NAME: video-to-text
+        run: |
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git push --force \
+            "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE_NAME}" \
+            HEAD:main
+
+      - name: Print live URL
+        env:
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_SPACE_NAME: video-to-text
+        run: |
+          echo "🚀 Deploy triggered. Space will build in ~3 min:"
+          echo "   https://huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE_NAME}"
+          echo "   Live URL: https://${HF_USERNAME}-${HF_SPACE_NAME}.hf.space"
