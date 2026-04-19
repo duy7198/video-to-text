@@ -33,7 +33,7 @@ jobs:
         run: |
           python - <<'EOF'
           import os, sys
-          from huggingface_hub import HfApi, HfHubHTTPError
+          from huggingface_hub import HfApi
           token = os.environ["HF_TOKEN"]
           username = os.environ["HF_USERNAME"]
           space = os.environ["HF_SPACE_NAME"]
