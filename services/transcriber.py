@@ -213,6 +213,55 @@ def _fetch_tiktok_photo_urls(
     return _fetch_via_tikwm(url, progress_cb)
 
 
+def _is_tiktok_url(url: str) -> bool:
+    """True if the URL is on any TikTok host."""
+    return any(host in url for host in ("tiktok.com", "vt.tiktok", "vm.tiktok"))
+
+
+def _download_tiktok_video_via_tikwm(
+    url: str, out_dir: Path, progress_cb: Callable[[str], None]
+) -> Path:
+    """Fallback when yt-dlp fails on a TikTok video URL. Uses tikwm.com's
+    public API to get a direct CDN URL for the video, then downloads it.
+    """
+    import requests
+
+    progress_cb("Fetching TikTok video metadata from tikwm.com...")
+    resp = requests.post(
+        "https://www.tikwm.com/api/",
+        data={"url": url, "hd": "1"},
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if payload.get("code") != 0:
+        raise RuntimeError(f"tikwm error: {payload.get('msg', 'unknown')}")
+
+    data = payload.get("data") or {}
+    # Prefer HD play (no watermark), fall back to standard play URL.
+    video_url = data.get("hdplay") or data.get("play") or data.get("wmplay")
+    if not video_url:
+        raise RuntimeError("tikwm returned no playable video URL")
+
+    progress_cb("Downloading video from tikwm CDN...")
+    out_path = out_dir / "video.mp4"
+    r = requests.get(
+        video_url,
+        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.tiktok.com/"},
+        stream=True,
+        timeout=120,
+    )
+    r.raise_for_status()
+    with open(out_path, "wb") as f:
+        for chunk in r.iter_content(chunk_size=65536):
+            if chunk:
+                f.write(chunk)
+    if out_path.stat().st_size < 10_000:
+        raise RuntimeError("tikwm video file too small or incomplete")
+    return out_path
+
+
 def _find_image_post(obj, depth: int = 0, max_depth: int = 8):
     """Recursively search a JSON-ish tree for a dict shaped like
     ``{"images": [...]}``  under a key ``imagePost`` (TikTok photo post shape).
@@ -339,6 +388,14 @@ def transcribe_url(
                 "image_count": len(images),
                 "url": url,
             }
+        except RuntimeError as exc:
+            # TikTok video fallback: if yt-dlp failed on a TikTok URL (bot block,
+            # IP filter, etc.), try tikwm.com which proxies through trusted IPs.
+            if _is_tiktok_url(url):
+                progress_cb(f"yt-dlp failed ({exc}); trying tikwm.com fallback...")
+                video_path = _download_tiktok_video_via_tikwm(url, tmp_path, progress_cb)
+            else:
+                raise
 
         data = _transcribe_with_whisper(video_path, progress_cb)
         return {
