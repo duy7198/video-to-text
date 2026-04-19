@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Recommended: **Hugging Face Spaces** — free, 16 GB RAM, 2 vCPU, 50 GB disk. Perfect fit for this app because it includes heavy ML dependencies (Whisper, EasyOCR) and a headless browser (Playwright Chromium).
+Recommended: **Hugging Face Spaces** — free, 16 GB RAM, 2 vCPU, 50 GB disk. Good fit for this app because of the ML dependencies (Whisper, EasyOCR).
 
 ---
 
@@ -42,7 +42,7 @@ When git asks for credentials:
 ### 3. Watch it build
 
 After pushing, visit `https://huggingface.co/spaces/<YOUR_HF_USERNAME>/video-to-text`. The Space will:
-1. **Build** (5–10 min first time) — installs Python deps + Playwright Chromium.
+1. **Build** (~3 min first time) — installs Python deps.
 2. **Run** — the container starts, Whisper downloads the `base` model (~145 MB) on first request.
 
 Once it says "Running", the app is live at:
@@ -109,8 +109,9 @@ The app is live at `http://<your-vps>`. Put Caddy or Nginx in front for HTTPS.
 
 ## Troubleshooting
 
-**Build fails with "Chromium download failed"**
-- Network issue during Playwright install. Retry the build.
+**TikTok photo post returns an empty transcript**
+- TikTok rate-limits the hosting IP (≈30–60 requests/min). Wait a few minutes and retry.
+- If it persists, the JSON schema may have changed. Check the logs for "Rehydration script tag not found" or "Unexpected TikTok JSON structure".
 
 **Runtime error: "Out of memory"**
 - Whisper `base` needs ~1 GB, `small` needs ~2 GB. Check the instance has enough RAM.

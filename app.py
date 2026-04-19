@@ -7,7 +7,7 @@ Flask server exposing:
   GET  /api/status/<job_id>                    -> poll job status
 
 TikTok photo slideshows (where yt-dlp fails with "Unsupported URL /photo/") are
-handled automatically: Playwright scrapes slide images, then EasyOCR extracts text.
+handled automatically by parsing the post's embedded JSON from the HTML, then OCR.
 """
 import os
 import uuid

@@ -6,7 +6,8 @@ Flow
 1. Try yt-dlp to download the video (works for YouTube, regular TikTok, many others).
 2. Whisper transcribes the audio with automatic language detection.
 3. Fallback: if yt-dlp fails with "Unsupported URL" + "/photo/" (TikTok photo
-   slideshow), scrape images via Playwright and run EasyOCR instead.
+   slideshow), fetch the post HTML, parse the embedded rehydration JSON to find
+   the image URLs, download them, and run EasyOCR. No browser needed.
 """
 from __future__ import annotations
 
@@ -14,7 +15,6 @@ import os
 import subprocess
 import tempfile
 import threading
-import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -107,58 +107,99 @@ def _download_with_ytdlp(url: str, out_dir: Path, progress_cb: Callable[[str], N
     raise RuntimeError("yt-dlp succeeded but no output file found")
 
 
-def _scrape_tiktok_photos(url: str, out_dir: Path, progress_cb: Callable[[str], None]) -> list[Path]:
-    """Scrape slide images from a TikTok photo post using Playwright."""
-    from playwright.sync_api import sync_playwright
+def _fetch_tiktok_photo_urls(
+    url: str, progress_cb: Callable[[str], None]
+) -> list[str]:
+    """Extract image URLs from a TikTok photo post without a browser.
 
-    progress_cb("Rendering TikTok photo page with Playwright...")
+    TikTok embeds the entire post data as JSON inside a
+    ``<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">`` tag in the initial HTML.
+    We just need a plain HTTP request with browser-like headers; no JS render,
+    no Chromium, no Playwright.
+    """
+    import re
+    import json
+    import requests
 
-    image_paths: list[Path] = []
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"],
+    progress_cb("Fetching TikTok post HTML...")
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.tiktok.com/",
+    }
+    resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
+    resp.raise_for_status()
+
+    m = re.search(
+        r'<script[^>]*id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>',
+        resp.text,
+        re.DOTALL,
+    )
+    if not m:
+        raise RuntimeError(
+            "Rehydration script tag not found — TikTok may have rate-limited the "
+            "request or changed page structure."
         )
-        context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            ignore_https_errors=True,
-        )
-        page = context.new_page()
+
+    try:
+        payload = json.loads(m.group(1))
+        item = payload["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise RuntimeError(f"Unexpected TikTok JSON structure: {e}") from e
+
+    image_post = item.get("imagePost")
+    if not image_post:
+        raise RuntimeError("Post is not a photo slideshow (no 'imagePost' field)")
+
+    urls: list[str] = []
+    for img in image_post.get("images", []):
+        # imageURL.urlList is the canonical path; displayImage.urlList is a fallback
+        image_data = img.get("imageURL") or img.get("displayImage") or {}
+        url_list = image_data.get("urlList") or []
+        if url_list:
+            # urlList is ordered high-quality first
+            urls.append(url_list[0])
+
+    if not urls:
+        raise RuntimeError("Photo post found but no image URLs inside it")
+    return urls
+
+
+def _download_images(
+    image_urls: list[str], out_dir: Path, progress_cb: Callable[[str], None]
+) -> list[Path]:
+    """Download images to out_dir. Returns paths to successfully saved files."""
+    import requests
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://www.tiktok.com/",
+    }
+
+    progress_cb(f"Downloading {len(image_urls)} slide image(s)...")
+    saved: list[Path] = []
+    for i, img_url in enumerate(image_urls, 1):
+        progress_cb(f"Downloading slide {i}/{len(image_urls)}")
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            time.sleep(3)  # let JS render the carousel
-
-            progress_cb("Downloading slideshow images...")
-            seen: set[str] = set()
-            for img in page.query_selector_all("img"):
-                src = img.get_attribute("src") or ""
-                if not any(cdn in src for cdn in ("p16-sign", "p19-sign", "p77-sign", "tiktokcdn")):
-                    continue
-                if any(skip in src for skip in ("avatar", "100x100", "68x68")):
-                    continue
-                if src in seen:
-                    continue
-                seen.add(src)
-
-                j = len(image_paths) + 1
-                img_path = out_dir / f"slide_{j}.jpg"
-                subprocess.run(
-                    ["curl", "-L", "-s", "-k", "-o", str(img_path), src],
-                    capture_output=True,
-                    timeout=30,
-                )
-                if img_path.exists() and img_path.stat().st_size > 5000:
-                    image_paths.append(img_path)
-                else:
-                    img_path.unlink(missing_ok=True)
-        finally:
-            browser.close()
-
-    return image_paths
+            r = requests.get(img_url, headers=headers, timeout=30)
+            r.raise_for_status()
+            img_path = out_dir / f"slide_{i}.jpg"
+            img_path.write_bytes(r.content)
+            if img_path.stat().st_size > 5000:
+                saved.append(img_path)
+        except Exception:
+            # Skip individual failures and continue with the rest
+            continue
+    return saved
 
 
 def _transcribe_with_whisper(
@@ -211,10 +252,11 @@ def transcribe_url(
         try:
             video_path = _download_with_ytdlp(url, tmp_path, progress_cb)
         except PhotoPostError:
-            # TikTok photo fallback: scrape slides + OCR
-            images = _scrape_tiktok_photos(url, tmp_path, progress_cb)
+            # TikTok photo fallback: fetch embedded JSON -> download images -> OCR
+            image_urls = _fetch_tiktok_photo_urls(url, progress_cb)
+            images = _download_images(image_urls, tmp_path, progress_cb)
             if not images:
-                raise RuntimeError("No images could be scraped from the TikTok photo post")
+                raise RuntimeError("No images could be downloaded from the TikTok photo post")
             texts = _ocr_slides(images, ocr_langs, progress_cb)
             combined = "\n\n".join(t for t in texts if t)
             return {

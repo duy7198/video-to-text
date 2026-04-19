@@ -16,7 +16,7 @@ A small web tool that converts **YouTube / TikTok videos and images to text**, w
 
 - **Audio/video** → transcribed by [OpenAI Whisper](https://github.com/openai/whisper) (auto language detection)
 - **Images** → OCR via [EasyOCR](https://github.com/JaidedAI/EasyOCR)
-- **TikTok photo slideshows** → fallback: [Playwright](https://playwright.dev) scrapes slides, then OCR
+- **TikTok photo slideshows** → fallback: parse embedded JSON from HTML, download slides, then OCR
 - **Any URL yt-dlp supports** works — YouTube, TikTok, Facebook, Twitter/X, Instagram Reels, and more
 
 ## Screenshot
@@ -58,7 +58,6 @@ sudo apt-get install -y ffmpeg curl
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m playwright install chromium
 ```
 
 ### 3. Run
@@ -152,8 +151,8 @@ curl http://localhost:5000/api/status/abc123...
              │                               │
              ▼                               ▼
       ┌──────────┐                    ┌────────────────┐
-      │  yt-dlp  │◀── fails on ─────▶│  Playwright    │
-      │          │    /photo/ URLs    │  (TikTok slides)│
+      │  yt-dlp  │◀── fails on ─────▶│  Parse hidden  │
+      │          │    /photo/ URLs    │  JSON from HTML │
       └────┬─────┘                    └────────┬───────┘
            │                                   │
            ▼                                   ▼
@@ -176,7 +175,7 @@ curl http://localhost:5000/api/status/abc123...
 video-to-text/
 ├── app.py                    # Flask server, job queue, endpoints
 ├── services/
-│   ├── transcriber.py        # yt-dlp + Whisper + Playwright pipeline
+│   ├── transcriber.py        # yt-dlp + Whisper + TikTok photo scraper
 │   └── ocr_service.py        # EasyOCR wrapper
 ├── templates/
 │   └── index.html            # Single-page UI

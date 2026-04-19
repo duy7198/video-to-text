@@ -14,17 +14,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     EASYOCR_MODULE_PATH=/app/.cache/easyocr \
     WHISPER_CACHE_DIR=/app/.cache/whisper
 
+# ffmpeg is required by yt-dlp (merge) and Whisper (audio decode).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg \
-      curl \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && python -m playwright install --with-deps chromium
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
