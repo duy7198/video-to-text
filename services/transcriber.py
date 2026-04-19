@@ -79,33 +79,54 @@ def _download_with_ytdlp(url: str, out_dir: Path, progress_cb: Callable[[str], N
     """Download a video with yt-dlp. Returns path to the .mp4 (or .m4a) file.
 
     On YouTube, datacenter IPs get hit with "Sign in to confirm you're not a bot".
-    Workaround: tell yt-dlp to try the embedded player clients which don't
-    require PO tokens or cookies. We try several clients in a single call —
-    yt-dlp falls through the list until one works.
+    Mitigations stacked:
+      1. --impersonate chrome: curl_cffi-powered TLS fingerprint impersonation
+         so we look like a real Chrome browser at the network layer.
+      2. --extractor-args youtube:player_client=...: try multiple YouTube
+         clients (embedded/TV/mweb) that don't require PO tokens.
+    These help a lot but are not a guarantee — YouTube's bot detection is IP
+    reputation-heavy, and many cloud datacenter IPs (including HF Spaces)
+    are flagged regardless of tricks we apply client-side.
     """
     progress_cb("Downloading media with yt-dlp...")
     out_template = str(out_dir / "video.%(ext)s")
 
-    cmd = [
+    base_cmd = [
         "yt-dlp",
         "--no-warnings",
         "--no-check-certificates",
-        # YouTube bot-detection bypass chain — most-reliable-first.
-        # Ignored by non-YouTube extractors, so safe to pass globally.
+        # YouTube bot-detection bypass chain — ignored by non-YT extractors
         "--extractor-args",
         "youtube:player_client=web_embedded,tv_embedded,mweb,android_vr,tv",
-        # Audio-only is cheaper to download AND all we need for transcription.
-        # Falls back to video+audio if audio-only isn't available.
+        # Audio-only is cheaper AND all we need for transcription.
+        # Falls back to video+audio if audio-only unavailable.
         "-f", "bestaudio[ext=m4a]/bestaudio/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
         "-o", out_template,
         url,
     ]
+
+    # Attempt 1: with TLS fingerprint impersonation (requires curl_cffi)
+    cmd = [base_cmd[0], "--impersonate", "chrome", *base_cmd[1:]]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT)
+
+    # If curl_cffi isn't available at runtime, retry without impersonation
+    if result.returncode != 0 and "Impersonate target" in (result.stderr or ""):
+        progress_cb("curl_cffi unavailable; retrying without impersonation...")
+        result = subprocess.run(base_cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT)
 
     if result.returncode != 0:
         stderr = result.stderr or ""
         if "Unsupported URL" in stderr and "/photo/" in stderr:
             raise PhotoPostError("TikTok photo post (slideshow)")
+        # Special case: YouTube bot check hit despite all mitigations.
+        if "Sign in to confirm you" in stderr or "not a bot" in stderr:
+            raise RuntimeError(
+                "YouTube blocked this request from the server's IP. "
+                "This is a known limitation when running on cloud hosting "
+                "(HF Spaces, Render, AWS, etc.) — YouTube treats datacenter "
+                "IPs as bots regardless of headers. Workarounds: run this "
+                "tool locally on your machine, or try a TikTok/other URL."
+            )
         tail = stderr.strip().splitlines()[-3:] if stderr else ["unknown error"]
         raise RuntimeError("yt-dlp failed: " + " | ".join(tail))
 
