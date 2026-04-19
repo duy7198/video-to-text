@@ -148,13 +148,19 @@ def _fetch_tiktok_photo_urls(
 
     try:
         payload = json.loads(m.group(1))
-        item = payload["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        raise RuntimeError(f"Unexpected TikTok JSON structure: {e}") from e
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Failed to parse rehydration JSON: {e}") from e
 
-    image_post = item.get("imagePost")
+    # TikTok's schema varies between video and photo posts. Instead of hard-coding
+    # a single path, walk the tree looking for the first dict that has an
+    # `imagePost.images` array (that's a photo post) — agnostic to wrapper keys.
+    image_post = _find_image_post(payload)
     if not image_post:
-        raise RuntimeError("Post is not a photo slideshow (no 'imagePost' field)")
+        scope = payload.get("__DEFAULT_SCOPE__", {})
+        raise RuntimeError(
+            "Could not find a photo slideshow in the page data. "
+            f"Top-level scope keys: {list(scope.keys())[:12]}"
+        )
 
     urls: list[str] = []
     for img in image_post.get("images", []):
@@ -168,6 +174,29 @@ def _fetch_tiktok_photo_urls(
     if not urls:
         raise RuntimeError("Photo post found but no image URLs inside it")
     return urls
+
+
+def _find_image_post(obj, depth: int = 0, max_depth: int = 8):
+    """Recursively search a JSON-ish tree for a dict shaped like
+    ``{"images": [...]}``  under a key ``imagePost`` (TikTok photo post shape).
+    Resilient to variations in the outer scope key names.
+    """
+    if depth > max_depth:
+        return None
+    if isinstance(obj, dict):
+        ip = obj.get("imagePost")
+        if isinstance(ip, dict) and isinstance(ip.get("images"), list) and ip["images"]:
+            return ip
+        for v in obj.values():
+            found = _find_image_post(v, depth + 1, max_depth)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for v in obj:
+            found = _find_image_post(v, depth + 1, max_depth)
+            if found is not None:
+                return found
+    return None
 
 
 def _download_images(
