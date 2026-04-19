@@ -12,12 +12,14 @@ short_description: YouTube/TikTok/image → text with auto language detection
 
 # video → text
 
-A small web tool that converts **YouTube / TikTok videos and images to text**, with automatic language detection.
+A small web tool that converts **TikTok / Facebook videos and images to text**, with automatic language detection.
 
 - **Audio/video** → transcribed by [OpenAI Whisper](https://github.com/openai/whisper) (auto language detection)
 - **Images** → OCR via [EasyOCR](https://github.com/JaidedAI/EasyOCR)
-- **TikTok photo slideshows** → fallback: parse embedded JSON from HTML, download slides, then OCR
-- **Any URL yt-dlp supports** works — YouTube, TikTok, Facebook, Twitter/X, Instagram Reels, and more
+- **TikTok videos** → yt-dlp with [tikwm.com](https://www.tikwm.com) fallback for cloud-IP blocks
+- **TikTok photo slideshows** → parse embedded JSON → OCR each slide
+- **Facebook** videos & reels via yt-dlp
+- Works from any IP (hosted demo or local). YouTube intentionally **not supported** — Google blocks cloud datacenter IPs too aggressively in 2026
 
 ## Screenshot
 
@@ -86,28 +88,6 @@ Environment variables:
 | `HOST`          | `0.0.0.0`| Bind address                                              |
 | `UPLOAD_DIR`    | `uploads`| Where uploaded images are stored                          |
 | `YTDLP_TIMEOUT` | `600`    | yt-dlp timeout in seconds                                 |
-| `YTDLP_PROXY`   | *unset*  | Proxy URL for yt-dlp (needed for YouTube on cloud hosts)  |
-
-## ⚠️ YouTube on cloud hosting
-
-YouTube aggressively blocks **datacenter IPs** (AWS, HF Spaces, Render, Fly.io)
-with a "Sign in to confirm you're not a bot" message. This is not
-fixable with headers or yt-dlp flags alone — it's IP-reputation-based.
-
-**Options to make YouTube work:**
-
-1. **Run locally** — on your residential connection, YouTube works out of the box.
-2. **Set `YTDLP_PROXY`** — point to a residential/trusted proxy. Free options:
-   - Self-host [Cloudflare WARP](https://github.com/cmj2002/warp-docker) on a
-     small VPS — Cloudflare IPs are usually treated as residential by YouTube.
-     Set `YTDLP_PROXY=http://your-warp-vps:1080`.
-   - [Mullvad VPN](https://mullvad.net/) has a SOCKS5 proxy for paying users (~€5/mo).
-   - [Bright Data](https://brightdata.com), [Smartproxy](https://smartproxy.com),
-     [Oxylabs](https://oxylabs.io) — commercial residential proxy services.
-3. **Use a non-YouTube URL** — TikTok, Facebook, Instagram, Twitter/X, etc. still
-   work fine on cloud IPs because their bot detection is lighter.
-
-On Hugging Face Spaces, set `YTDLP_PROXY` under *Settings → Variables and secrets*.
 
 Example:
 

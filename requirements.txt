@@ -1,7 +1,6 @@
 flask>=3.0.0
 werkzeug>=3.0.0
-yt-dlp[default]>=2026.2.4
-curl_cffi>=0.7.0
+yt-dlp>=2026.2.4
 openai-whisper>=20231117
 easyocr>=1.7.0
 requests>=2.31.0
