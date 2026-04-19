@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>video → text</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <main>
+    <header class="hero">
+      <div class="tag">v1 · speech · ocr</div>
+      <h1>video<span class="arrow"> → </span>text</h1>
+      <p class="lede">
+        Drop a YouTube or TikTok link, or an image. Get the full transcript with
+        the detected language. Whisper handles audio. EasyOCR handles pixels.
+      </p>
+    </header>
+
+    <section class="panel" aria-label="Input">
+      <div class="tabs" role="tablist">
+        <button class="tab active" role="tab" aria-selected="true" data-tab="url">
+          <span class="dot"></span> URL
+        </button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="image">
+          <span class="dot"></span> Image
+        </button>
+      </div>
+
+      <div class="tab-panel" id="panel-url" role="tabpanel">
+        <label class="field">
+          <span>Source URL</span>
+          <input
+            id="url"
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=… or https://vt.tiktok.com/…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </label>
+        <div class="hint">YouTube, TikTok videos, TikTok photo slideshows, and most sites yt-dlp supports.</div>
+        <button id="submit-url" class="btn primary">
+          <span>Convert</span>
+          <span class="btn-arrow">↵</span>
+        </button>
+      </div>
+
+      <div class="tab-panel hidden" id="panel-image" role="tabpanel">
+        <label class="field file-field" for="image">
+          <span>Image file</span>
+          <div class="dropzone" id="dropzone">
+            <input id="image" type="file" accept="image/*" />
+            <div class="dz-label">
+              <span class="dz-primary">Drop an image or click to browse</span>
+              <span class="dz-secondary" id="dz-filename">PNG · JPG · WebP · up to 200MB</span>
+            </div>
+          </div>
+        </label>
+        <label class="field">
+          <span>OCR languages</span>
+          <input id="ocr-langs" type="text" value="en,vi" spellcheck="false" />
+        </label>
+        <div class="hint">
+          Comma-separated codes: <code>en</code>, <code>vi</code>, <code>ja</code>,
+          <code>ko</code>, <code>zh</code>, etc.
+        </div>
+        <button id="submit-image" class="btn primary">
+          <span>Extract text</span>
+          <span class="btn-arrow">↵</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="panel status-panel hidden" id="status-card" aria-live="polite">
+      <div class="status-inner">
+        <div class="pulse" aria-hidden="true"></div>
+        <div>
+          <div class="status-label">Working</div>
+          <div class="status-msg" id="status-msg">Starting…</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel result-panel hidden" id="result-card">
+      <div class="result-head">
+        <div>
+          <div class="result-label">Output</div>
+          <div class="result-title">transcript</div>
+        </div>
+        <div class="meta">
+          <span id="lang-badge" class="badge accent">?</span>
+          <span id="type-badge" class="badge">?</span>
+        </div>
+      </div>
+      <textarea id="result-text" readonly spellcheck="false"></textarea>
+      <div class="actions">
+        <button id="copy-btn" class="btn">copy</button>
+        <button id="download-btn" class="btn">download .txt</button>
+        <button id="reset-btn" class="btn ghost">new</button>
+      </div>
+    </section>
+
+    <section class="panel error-panel hidden" id="error-card">
+      <div class="error-head">error</div>
+      <pre id="error-msg"></pre>
+      <button class="btn ghost" onclick="document.getElementById('error-card').classList.add('hidden')">dismiss</button>
+    </section>
+
+    <footer>
+      <div class="foot-line">
+        <span>yt-dlp</span><span class="sep">·</span>
+        <span>openai-whisper</span><span class="sep">·</span>
+        <span>easyocr</span><span class="sep">·</span>
+        <span>playwright</span>
+      </div>
+      <div class="foot-line muted">
+        <a href="https://github.com/duy7198/video-to-text" target="_blank" rel="noopener">source</a>
+      </div>
+    </footer>
+  </main>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

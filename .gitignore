@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+
+# Runtime artifacts
+uploads/
+*.mp4
+*.mp3
+*.m4a
+*.webm
+*.wav
+*.jpg
+*.jpeg
+*.png
+!static/**
+!templates/**
+
+transcripts.json
+*.txt
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
