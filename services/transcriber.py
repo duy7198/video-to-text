@@ -107,21 +107,18 @@ def _download_with_ytdlp(url: str, out_dir: Path, progress_cb: Callable[[str], N
     raise RuntimeError("yt-dlp succeeded but no output file found")
 
 
-def _fetch_tiktok_photo_urls(
-    url: str, progress_cb: Callable[[str], None]
-) -> list[str]:
-    """Extract image URLs from a TikTok photo post without a browser.
+def _fetch_via_direct_html(url: str, progress_cb: Callable[[str], None]) -> list[str]:
+    """Parse image URLs directly from TikTok's HTML (rehydration JSON).
 
-    TikTok embeds the entire post data as JSON inside a
-    ``<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">`` tag in the initial HTML.
-    We just need a plain HTTP request with browser-like headers; no JS render,
-    no Chromium, no Playwright.
+    Works when the request comes from a "trusted" IP — typically residential
+    networks. Datacenter IPs (AWS, HF Spaces, GCP, etc.) usually receive a
+    stripped bot-detection page without the post data.
     """
     import re
     import json
     import requests
 
-    progress_cb("Fetching TikTok post HTML...")
+    progress_cb("Fetching TikTok post HTML directly...")
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -141,39 +138,71 @@ def _fetch_tiktok_photo_urls(
         re.DOTALL,
     )
     if not m:
-        raise RuntimeError(
-            "Rehydration script tag not found — TikTok may have rate-limited the "
-            "request or changed page structure."
-        )
+        raise RuntimeError("Rehydration script tag not found")
 
     try:
         payload = json.loads(m.group(1))
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Failed to parse rehydration JSON: {e}") from e
 
-    # TikTok's schema varies between video and photo posts. Instead of hard-coding
-    # a single path, walk the tree looking for the first dict that has an
-    # `imagePost.images` array (that's a photo post) — agnostic to wrapper keys.
     image_post = _find_image_post(payload)
     if not image_post:
-        scope = payload.get("__DEFAULT_SCOPE__", {})
-        raise RuntimeError(
-            "Could not find a photo slideshow in the page data. "
-            f"Top-level scope keys: {list(scope.keys())[:12]}"
-        )
+        raise RuntimeError("Bot-detection page (no post data in JSON)")
 
     urls: list[str] = []
     for img in image_post.get("images", []):
-        # imageURL.urlList is the canonical path; displayImage.urlList is a fallback
         image_data = img.get("imageURL") or img.get("displayImage") or {}
         url_list = image_data.get("urlList") or []
         if url_list:
-            # urlList is ordered high-quality first
             urls.append(url_list[0])
-
     if not urls:
         raise RuntimeError("Photo post found but no image URLs inside it")
     return urls
+
+
+def _fetch_via_tikwm(url: str, progress_cb: Callable[[str], None]) -> list[str]:
+    """Fallback: use tikwm.com's public API. Works from any IP because tikwm
+    proxies through their own trusted network. Free, no auth, ~1 req/sec."""
+    import requests
+
+    progress_cb("Fetching via tikwm.com fallback...")
+    resp = requests.post(
+        "https://www.tikwm.com/api/",
+        data={"url": url, "hd": "1"},
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if payload.get("code") != 0:
+        raise RuntimeError(f"tikwm error: {payload.get('msg', 'unknown')}")
+
+    data = payload.get("data") or {}
+    images = data.get("images") or []
+    if not images:
+        raise RuntimeError("tikwm returned no images for this URL")
+    # tikwm returns plain string URLs
+    return [u for u in images if isinstance(u, str) and u.startswith("http")]
+
+
+def _fetch_tiktok_photo_urls(
+    url: str, progress_cb: Callable[[str], None]
+) -> list[str]:
+    """Get image URLs from a TikTok photo post.
+
+    Strategy: try direct HTML parse first (zero 3rd-party dependency, works
+    on residential IPs). If that hits a bot wall (common on datacenter IPs
+    like HF Spaces, Fly.io, etc.), fall back to tikwm.com's public API.
+    """
+    try:
+        urls = _fetch_via_direct_html(url, progress_cb)
+        if urls:
+            return urls
+    except Exception as e:
+        progress_cb(f"Direct parse failed ({e}); using tikwm.com fallback...")
+
+    # Fallback path — if this also fails, surface the error to the user.
+    return _fetch_via_tikwm(url, progress_cb)
 
 
 def _find_image_post(obj, depth: int = 0, max_depth: int = 8):
