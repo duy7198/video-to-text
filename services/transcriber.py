@@ -40,7 +40,10 @@ def _load_whisper():
     with _whisper_lock:
         if _whisper_model is None:
             import whisper  # heavy import, keep it lazy
-            _whisper_model = whisper.load_model(WHISPER_MODEL_NAME)
+            cache_dir = os.environ.get("WHISPER_CACHE_DIR")
+            _whisper_model = whisper.load_model(
+                WHISPER_MODEL_NAME, download_root=cache_dir
+            )
     return _whisper_model
 
 

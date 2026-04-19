@@ -1,3 +1,15 @@
+---
+title: Video To Text
+emoji: 🎬
+colorFrom: indigo
+colorTo: pink
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+short_description: YouTube/TikTok/image → text with auto language detection
+---
+
 # video → text
 
 A small web tool that converts **YouTube / TikTok videos and images to text**, with automatic language detection.
