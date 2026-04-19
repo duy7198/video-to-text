@@ -20,7 +20,9 @@ uploads/
 !templates/**
 
 transcripts.json
-*.txt
+# Runtime transcript outputs (but keep requirements.txt, README, etc.)
+video_*.txt
+transcript_*.txt
 
 # OS / editor
 .DS_Store

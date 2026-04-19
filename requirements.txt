@@ -1,0 +1,7 @@
+flask>=3.0.0
+werkzeug>=3.0.0
+yt-dlp>=2024.1.0
+openai-whisper>=20231117
+easyocr>=1.7.0
+requests>=2.31.0
+langdetect>=1.0.9
