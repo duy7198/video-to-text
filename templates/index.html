@@ -20,8 +20,9 @@
       <div class="tag">v1 · speech · ocr</div>
       <h1>video<span class="arrow"> → </span>text</h1>
       <p class="lede">
-        Drop a YouTube or TikTok link, or an image. Get the full transcript with
-        the detected language. Whisper handles audio. EasyOCR handles pixels.
+        Drop a TikTok, Facebook, or Instagram link, or an image. Get the
+        full transcript with the detected language. Whisper handles audio.
+        EasyOCR handles pixels.
       </p>
     </header>
 
@@ -41,17 +42,20 @@
           <input
             id="url"
             type="url"
-            placeholder="https://www.youtube.com/watch?v=… or https://vt.tiktok.com/…"
+            placeholder="https://vt.tiktok.com/… or https://facebook.com/…"
             autocomplete="off"
             spellcheck="false"
           />
         </label>
-        <div class="hint">
-          TikTok (videos + photo slideshows), Facebook, Instagram, and most
-          yt-dlp sites work on the hosted demo. <strong>YouTube often fails
-          on cloud hosts</strong> because Google blocks datacenter IPs — for
-          YouTube, run this app locally, or set a <code>YTDLP_PROXY</code>
-          secret pointing to a residential proxy.
+        <div class="support-matrix">
+          <div class="sm-row">
+            <span class="sm-badge ok">works on hosted demo</span>
+            <span class="sm-items">TikTok · Facebook · Instagram · Twitter/X · Reddit · SoundCloud · 1000+ yt-dlp sites</span>
+          </div>
+          <div class="sm-row">
+            <span class="sm-badge local">local only</span>
+            <span class="sm-items">YouTube — Google blocks cloud IPs. Run the app on your laptop for YouTube URLs.</span>
+          </div>
         </div>
         <button id="submit-url" class="btn primary">
           <span>Convert</span>
